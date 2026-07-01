@@ -1,11 +1,59 @@
+use std::cmp::min;
+
 use dotenvy::dotenv;
 use img_hash::HasherConfig;
-use poise::serenity_prelude::{self as serenity, Error};
+use poise::serenity_prelude::{self as serenity, Error, Message};
 
 const IMAGE_1: &[u8] = include_bytes!("../data/scam.jpg");
 const IMAGE_2: &[u8] = include_bytes!("../data/scam1.jpg");
 
 struct AppData {}
+
+struct MessageEval {
+    message_content: String,
+    attachments_count: usize,
+    author_join_date: i64, // UNIX timestamp
+    smaller_attachements_dist: u32,
+}
+
+impl MessageEval {
+    fn new(message: &Message, dist: u32) -> Self {
+        Self {
+            message_content: message.content.clone(),
+            attachments_count: message.attachments.len(),
+            author_join_date: message.author.created_at().timestamp(),
+            smaller_attachements_dist: dist,
+        }
+    }
+
+    fn score(&self) -> u32 {
+        let mut score = 0;
+
+        if self.message_content.is_empty() {
+            score += 10;
+        }
+        if self.attachments_count == 2 {
+            score += 10;
+        }
+
+        if self.author_join_date + 3600 * 24 * 7
+            < std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64
+        {
+            score += 10;
+        }
+
+        if self.smaller_attachements_dist < 10 {
+            score += 100;
+        } else {
+            score -= self.smaller_attachements_dist / 2
+        }
+
+        score
+    }
+}
 
 type Context<'a> = poise::Context<'a, AppData, Error>;
 
@@ -60,24 +108,40 @@ async fn event_handler(
                 return Ok(());
             }
 
+            let mut score = 0;
+
             for attachment in new_message.attachments.clone() {
                 let Ok(download) = attachment.download().await else {
                     return Ok(());
                 };
 
-                let is_scam = {
+                let scam_score = {
                     let hasher = HasherConfig::new().to_hasher();
                     let downloaded_image_hash = image::load_from_memory(&download)
                         .map_err(|_| Error::Other("Failed to load image"))?;
                     let download_hash = hasher.hash_image(&downloaded_image_hash);
                     let known_hash = hasher.hash_image(&image::load_from_memory(IMAGE_1).unwrap());
-                    let known_hash_1 = hasher.hash_image(&image::load_from_memory(IMAGE_2).unwrap());
-                    download_hash.dist(&known_hash) <= 10 || download_hash.dist(&known_hash_1) <= 10
+                    let known_hash_1 =
+                        hasher.hash_image(&image::load_from_memory(IMAGE_2).unwrap());
+                    let msg = MessageEval::new(
+                        new_message,
+                        min(
+                            download_hash.dist(&known_hash),
+                            download_hash.dist(&known_hash_1),
+                        ),
+                    );
+
+                    msg.score()
                 };
 
-                if is_scam {
-                    new_message.channel_id.say(ctx, "Scam detected").await?;
-                }
+                score += scam_score;
+            }
+
+            if score > 30 {
+                new_message
+                    .channel_id
+                    .say(ctx, format!("Scam score: {score}"))
+                    .await?;
             }
 
             Ok(())
