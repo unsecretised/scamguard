@@ -154,7 +154,7 @@ async fn event_handler(
                 score += scam_score;
             }
 
-            if score > 30 {
+            if score > 30 || new_message.mentions_me(ctx).await.unwrap_or(false) {
                 new_message
                     .channel_id
                     .say(ctx, format!("Scam score: {score}"))
