@@ -14,6 +14,7 @@ struct MessageEval {
     attachments_count: usize,
     author_join_date: i64, // UNIX timestamp
     smaller_attachements_dist: u32,
+    server_join_duration: i64,
 }
 
 impl MessageEval {
@@ -21,6 +22,12 @@ impl MessageEval {
         Self {
             message_content: message.content.clone(),
             attachments_count: message.attachments.len(),
+            server_join_duration: message
+                .member
+                .clone()
+                .and_then(|x| x.joined_at)
+                .map(|x| x.timestamp())
+                .unwrap_or(0),
             author_join_date: message.author.created_at().timestamp(),
             smaller_attachements_dist: dist,
         }
@@ -29,13 +36,22 @@ impl MessageEval {
     fn score(&self) -> u32 {
         let mut score = 0;
 
-        if self.message_content.is_empty() {
+        // If message is empty increase scam likelihood
+        if self.message_content.trim().is_empty() {
             score += 10;
         }
+
+        // If there are 2 attachments increase scam likelihood
         if self.attachments_count == 2 {
             score += 10;
         }
 
+        // If joined in the last 7 days increase scam likelihood
+        if self.server_join_duration < 3600 * 24 * 7 {
+            score += 10;
+        }
+
+        // If the user has been a member for less than 1 week increase scam likelihood
         if self.author_join_date + 3600 * 24 * 7
             < std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -45,6 +61,7 @@ impl MessageEval {
             score += 10;
         }
 
+        // If the user has sent a message similar to scam dataset increase scam likelihood
         if self.smaller_attachements_dist < 10 {
             score += 100;
         } else {
