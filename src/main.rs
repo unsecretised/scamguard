@@ -75,12 +75,10 @@ impl MessageEval {
 type Context<'a> = poise::Context<'a, AppData, Error>;
 
 #[poise::command(slash_command, prefix_command)]
-async fn age(
+async fn version(
     ctx: Context<'_>,
-    #[description = "Selected user"] user: Option<serenity::User>,
 ) -> Result<(), Error> {
-    let u = user.as_ref().unwrap_or_else(|| ctx.author());
-    let response = format!("{}'s account was created at {}", u.name, u.created_at());
+    let response = "v1.0";
     ctx.say(response).await?;
     Ok(())
 }
@@ -93,7 +91,7 @@ async fn main() {
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![age()],
+            commands: vec![version()],
             event_handler: |ctx, event, framework, data| {
                 Box::pin(event_handler(ctx, event, framework, data))
             },
